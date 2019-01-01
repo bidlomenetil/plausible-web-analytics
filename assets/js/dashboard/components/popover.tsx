@@ -1,0 +1,153 @@
+import React, { RefObject } from 'react'
+import classNames from 'classnames'
+import { CheckIcon } from '@heroicons/react/24/outline'
+import { isModifierPressed, isTyping, Keybind } from '../keybinding'
+import { TransitionClasses } from '@headlessui/react'
+
+const TRANSITION_CONFIG: TransitionClasses = {
+  enter: 'transition ease-out duration-100',
+  enterFrom: 'opacity-0 scale-95',
+  enterTo: 'opacity-100 scale-100',
+  leave: 'transition ease-in duration-75',
+  leaveFrom: 'opacity-100 scale-100',
+  leaveTo: 'opacity-0 scale-95'
+}
+
+const transition = {
+  props: {
+    ...TRANSITION_CONFIG
+  },
+  classNames: {
+    fullwidth: 'z-10 absolute left-0 right-0 origin-top',
+    left: 'z-10 absolute left-0 origin-top-left',
+    right: 'z-10 absolute right-0 origin-top-right'
+  }
+}
+
+const panel = {
+  classNames: {
+    roundedSheet:
+      'flex flex-col gap-0.5 p-1 focus:outline-hidden rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black/5 text-gray-800 dark:text-gray-200'
+  }
+}
+
+/**
+ * Blocks hover and clicks on the rest of the page while a dropdown is open.
+ * Render it before the trigger, and give the trigger `aboveBackdrop`.
+ */
+const backdrop = {
+  classNames: {
+    transparent: 'fixed inset-0 z-10'
+  }
+}
+
+const toggleButton = {
+  classNames: {
+    aboveBackdrop: 'relative aria-expanded:z-10',
+    rounded: 'flex items-center rounded-md text-sm h-8',
+    shadow:
+      'bg-white dark:bg-gray-750 shadow-sm text-gray-800 dark:text-gray-200 dark:hover:bg-gray-700',
+    outline:
+      'border border-gray-300 dark:border-gray-750 bg-white dark:bg-gray-750 text-gray-800 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 dark:hover:border-gray-700 dark:hover:text-gray-100',
+    ghost:
+      'gap-x-1.5 px-2.5 text-gray-800 dark:text-gray-100 hover:bg-gray-150/80 dark:hover:bg-gray-800 aria-expanded:bg-gray-150/80 dark:aria-expanded:bg-gray-800',
+    truncatedText: 'truncate block',
+    linkLike:
+      'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 transition-colors duration-150'
+  }
+}
+
+const staticRow = 'px-3 py-2 text-sm rounded-md'
+
+const navigationLink = classNames(
+  'flex items-center justify-between',
+  staticRow,
+  'cursor-pointer'
+)
+
+const hoverLink = classNames(
+  'hover:bg-gray-100',
+  'hover:text-gray-900',
+  'dark:hover:bg-gray-700',
+  'dark:hover:text-gray-100',
+
+  'focus-within:bg-gray-100',
+  'focus-within:text-gray-900',
+  'dark:focus-within:bg-gray-700',
+  'dark:focus-within:text-gray-100'
+)
+
+const items = {
+  classNames: {
+    staticRow,
+    navigationLink,
+    hoverLink,
+    label: 'flex-1 min-w-0 truncate',
+    /** Use with a width. Keeps an svg icon on the first line of the row. */
+    rowIcon: 'shrink-0 self-start h-lh',
+    description: 'font-normal text-xs text-gray-500 dark:text-gray-400',
+    sectionTitle:
+      'px-3 py-2 text-xs font-medium uppercase whitespace-nowrap text-gray-500 dark:text-gray-400',
+    /** Full-width row that holds a leading icon and a `label` span. */
+    iconRow: classNames(navigationLink, hoverLink, 'gap-x-2 w-full text-left'),
+    selectedOption: classNames(
+      'gap-x-2',
+      'data-[selected=true]:bg-gray-100',
+      'data-[selected=true]:dark:bg-gray-700',
+      'data-[selected=true]:text-gray-900',
+      'data-[selected=true]:dark:text-gray-100'
+    ),
+    /** For options that are highlighted by keyboard, not by hover or focus. */
+    highlightedOption:
+      'bg-gray-100 text-gray-900 dark:bg-gray-700 dark:text-gray-100'
+  }
+}
+
+export const popover = {
+  backdrop,
+  toggleButton,
+  panel,
+  transition,
+  items
+}
+
+export function SelectedCheckmark({ selected }: { selected: boolean }) {
+  if (!selected) {
+    return null
+  }
+  return (
+    <CheckIcon
+      className={classNames('w-3.5', items.classNames.rowIcon)}
+      aria-hidden="true"
+    />
+  )
+}
+
+/**
+ * Rendering this component captures the Escape key on targetRef.current, a PopoverButton,
+ * blurring the element on Escape, and stopping the event from propagating.
+ * Needed to prevent other Escape handlers that may exist from running.
+ */
+export function BlurMenuButtonOnEscape({
+  targetRef
+}: {
+  targetRef: RefObject<HTMLElement>
+}) {
+  return (
+    <Keybind
+      keyboardKey="Escape"
+      type="keyup"
+      handler={(event) => {
+        const t = event.target as HTMLElement | null
+        if (typeof t?.blur === 'function') {
+          if (t === targetRef.current) {
+            t.blur()
+            event.stopPropagation()
+          }
+        }
+      }}
+      targetRef={targetRef}
+      shouldIgnoreWhen={[isModifierPressed, isTyping]}
+    />
+  )
+}

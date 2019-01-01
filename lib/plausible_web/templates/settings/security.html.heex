@@ -1,0 +1,143 @@
+<.settings_tiles>
+  <.tile :if={Plausible.Users.type(@current_user) == :standard} docs="change-email">
+    <:title>
+      <a id="update-email">Email address</a>
+    </:title>
+    <:subtitle>
+      Change the address associated with your account.
+    </:subtitle>
+    <.form
+      :let={f}
+      id="update_email_form"
+      action={~p"/settings/security/email"}
+      for={@email_changeset}
+      method="post"
+      class="flex flex-col gap-6"
+    >
+      <.input
+        type="text"
+        name="user[current_email]"
+        value={f.data.email}
+        label="Current email"
+        width="w-1/2"
+        disabled
+      />
+
+      <.input type="email" field={f[:email]} label="New email" width="w-1/2" />
+
+      <.input type="password" field={f[:password]} label="Confirm with password" width="w-1/2" />
+
+      <.button type="submit" class="self-start">
+        Change email
+      </.button>
+    </.form>
+  </.tile>
+
+  <.tile :if={Plausible.Users.type(@current_user) == :sso}>
+    <:title>
+      <a id="view-email">Email address</a>
+    </:title>
+    <:subtitle>
+      Address associated with your account.
+    </:subtitle>
+    <.form :let={f} for={@email_changeset}>
+      <.input
+        type="text"
+        name="user[current_email]"
+        value={f.data.email}
+        label="Current email"
+        width="w-1/2"
+        disabled
+      />
+    </.form>
+  </.tile>
+
+  <.tile :if={Plausible.Users.type(@current_user) == :standard} docs="reset-password">
+    <:title>
+      <a id="update-password">Password</a>
+    </:title>
+    <:subtitle>
+      Change your password.
+    </:subtitle>
+    <.form
+      :let={f}
+      id="update_password_form"
+      action={~p"/settings/security/password"}
+      for={@password_changeset}
+      method="post"
+      class="flex flex-col gap-6"
+    >
+      <.input
+        type="password"
+        max_one_error
+        field={f[:old_password]}
+        label="Old password"
+        width="w-1/2"
+      />
+
+      <.input
+        type="password"
+        max_one_error
+        field={f[:password]}
+        label="New password"
+        width="w-1/2"
+      />
+
+      <.input
+        type="password"
+        max_one_error
+        autocomplete="new-password"
+        field={f[:password_confirmation]}
+        label="Confirm new password"
+        width="w-1/2"
+      />
+
+      <div :if={@totp_enabled?}>
+        <.label for={f[:two_factor_code].id} class="mb-2">
+          Verify with 2FA Code
+        </.label>
+        <PlausibleWeb.Components.TwoFactor.verify_2fa_input
+          form={f}
+          show_button?={false}
+          field={:two_factor_code}
+          class="w-1/2"
+        />
+      </div>
+
+      <.button type="submit" class="self-start">
+        Change password
+      </.button>
+    </.form>
+  </.tile>
+
+  {live_render(@conn, PlausibleWeb.Live.TwoFactorSettings, id: "two-factor-settings")}
+
+  <.tile docs="login-management">
+    <:title>
+      <a id="user-sessions">Login management</a>
+    </:title>
+    <:subtitle>
+      Log out other devices. Inactive sessions auto-expire after 14 days.
+    </:subtitle>
+
+    <.table rows={@user_sessions}>
+      <:thead>
+        <.th>Device</.th>
+        <.th hide_on_mobile>Last seen</.th>
+        <.th invisible>Actions</.th>
+      </:thead>
+      <:tbody :let={session}>
+        <.td truncate max_width="max-w-40">{session.device}</.td>
+        <.td hide_on_mobile>{Plausible.Auth.UserSessions.last_used_humanize(session)}</.td>
+        <.td :if={@current_user_session.id == session.id} actions>Current session</.td>
+        <.td :if={@current_user_session.id != session.id} actions>
+          <.delete_button
+            href={~p"/settings/security/user-sessions/#{session.id}"}
+            method="delete"
+            data-confirm="Are you sure you want to log out this session?"
+          />
+        </.td>
+      </:tbody>
+    </.table>
+  </.tile>
+</.settings_tiles>

@@ -1,0 +1,230 @@
+defmodule PlausibleWeb.Live.Components.Team do
+  @moduledoc """
+  Shared component base for listing team members/invitations
+  alongside with the role dropdown.
+  """
+  use PlausibleWeb, :component
+  import PlausibleWeb.Components.Generic
+
+  alias Plausible.Auth.User
+  alias Plausible.Teams.TeamRolePermissions
+  alias PlausibleWeb.Components.PrimaListbox
+
+  @role_descriptions [
+    owner: "Manage the team without restrictions",
+    admin: "Manage all team settings",
+    editor: "Create and view new sites",
+    billing: "Manage subscription",
+    viewer: "View all sites under your team"
+  ]
+
+  def role_descriptions, do: @role_descriptions
+
+  @roles_cast_map Enum.into(@role_descriptions, %{}, fn {role, _} -> {to_string(role), role} end)
+
+  def role_to_atom(role), do: Map.fetch!(@roles_cast_map, role)
+
+  defp role_to_capitalized_string(role) when is_atom(role) do
+    role |> Atom.to_string() |> String.capitalize()
+  end
+
+  attr(:user, User, required: true)
+  attr(:label, :string, default: nil)
+  attr(:role, :atom, default: nil)
+  attr(:my_role, :atom, required: true)
+  attr(:me?, :boolean, default: false)
+  attr(:pending?, :boolean, default: false)
+  attr(:disabled, :boolean, default: false)
+  attr(:remove_disabled, :boolean, default: false)
+  attr(:role_change_disabled, :boolean, default: false)
+
+  def member(assigns) do
+    ~H"""
+    <div
+      class="mt-6"
+      id={"member-row-#{:erlang.phash2(@user.email)}"}
+      data-test-kind={if @role == :guest, do: "guest", else: "member"}
+      data-role-changed={
+        JS.show(
+          transition: {"duration-500", "opacity-0 shadow-2xl -translate-y-6", "opacity-100 shadow"},
+          time: 400
+        )
+      }
+    >
+      <div class="flex items-center gap-x-3 sm:gap-x-5">
+        <img
+          :if={not @pending?}
+          src={User.profile_img_url(@user)}
+          class="size-8 shrink-0 rounded-full bg-gray-300"
+        />
+        <div
+          :if={@pending?}
+          class="size-8 shrink-0 flex items-center justify-center rounded-full bg-indigo-500"
+        >
+          <Heroicons.envelope class="size-4 text-white" />
+        </div>
+        <div class="flex flex-col min-w-0">
+          <div class="flex items-center gap-x-1 text-sm font-medium">
+            <span :if={@pending?} class="truncate">Pending invitation</span>
+            <span :if={not @pending?} class="truncate">{@user.name}</span>
+            <span
+              :if={@label && @me?}
+              class="shrink-0 dark:bg-indigo-600 dark:text-gray-200 bg-gray-150 text-gray-500 text-xs px-1 py-0.5 rounded-md"
+            >
+              {@label}
+            </span>
+            <.pill :if={@label && not @me?} color={:gray} class="shrink-0">{@label}</.pill>
+          </div>
+          <span class="text-gray-500 text-xs truncate">
+            {@user.email}
+          </span>
+        </div>
+        <div class="flex-1 shrink-0 flex items-center justify-end gap-x-2">
+          <.role_switcher
+            id={"role-dropdown-#{@user.email}"}
+            user={@user}
+            role={@role}
+            my_role={@my_role}
+            me?={@me?}
+            disabled={@disabled or @role_change_disabled}
+          />
+
+          <.delete_button
+            id={"#{:erlang.phash2(@user.email)}-remove"}
+            disabled={@disabled or @remove_disabled}
+            class="disabled:!text-gray-500 dark:disabled:!text-gray-600"
+            aria-label={"Remove member #{@user.email}"}
+            phx-click="remove-member"
+            phx-value-email={@user.email}
+            data-confirm="Are you sure you want to remove this member from the team?"
+          />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr(:id, :string, required: true)
+  attr(:user, User, required: true)
+  attr(:role, :atom, required: true)
+  attr(:my_role, :atom, required: true)
+  attr(:me?, :boolean, default: false)
+  attr(:disabled, :boolean, default: false)
+
+  @doc """
+  Component for updating the role of a team member, invitation, or guest.
+  Wraps a PrimaListbox inside its own `<form>`. Submission works via
+  phx-change instead of a regular submit.
+
+  Hence the `phx-auto-recover="ignore"` on the wrapper form -- there's no
+  state to recover, and without explicitly ignoring auto-recover, we would
+  end up triggering a `handle_event("update-role")` even for disabled
+  listboxes and flashing success messages about having updated all roles
+  when the LiveView reconnects.
+  """
+  def role_switcher(assigns) do
+    assigns = assign(assigns, :change, role_change(assigns.user, assigns.role))
+
+    ~H"""
+    <form
+      id={"role-form-#{:erlang.phash2(@user.email)}"}
+      phx-change={@change}
+      phx-auto-recover="ignore"
+    >
+      <input type="hidden" name="email" value={@user.email} />
+
+      <PrimaListbox.listbox id={@id} name="role" value={@role} disabled={@disabled}>
+        <PrimaListbox.listbox_trigger
+          id={"#{@id}-trigger"}
+          theme="ghost"
+          size="sm"
+        >
+          <span class="sr-only">Role for {@user.email}:</span>
+          <PrimaListbox.listbox_value data-testid="role">
+            {role_to_capitalized_string(@role)}
+          </PrimaListbox.listbox_value>
+          <Heroicons.chevron_down mini class="size-4" />
+        </PrimaListbox.listbox_trigger>
+
+        <PrimaListbox.listbox_options id={"#{@id}-options"} class="max-w-60">
+          <PrimaListbox.listbox_option
+            :for={{role, description} <- selectable_role_descriptions(@my_role)}
+            id={"option-#{:erlang.phash2(@user.email)}-#{role}"}
+            value={role}
+            display={role_to_capitalized_string(role)}
+            phx-hook="Confirm"
+            data-confirm-message={
+              if @me? and not TeamRolePermissions.can_manage_team?(role), do: lower_role_warning()
+            }
+          >
+            <div class="flex items-center justify-between gap-x-2">
+              <span>{role_to_capitalized_string(role)}</span>
+              <PrimaListbox.selected_option_check_icon />
+            </div>
+            <PrimaListbox.option_description>
+              {description}
+            </PrimaListbox.option_description>
+          </PrimaListbox.listbox_option>
+        </PrimaListbox.listbox_options>
+      </PrimaListbox.listbox>
+    </form>
+    """
+  end
+
+  defp role_change(user, :guest) do
+    JS.hide(
+      transition: {"duration-500", "opacity-100", "opacity-0"},
+      to: "#member-row-#{:erlang.phash2(user.email)}",
+      time: 500
+    )
+    |> JS.push("update-role")
+  end
+
+  defp role_change(_user, _role), do: "update-role"
+
+  attr(:id, :string, required: true)
+  attr(:name, :string, required: true)
+  attr(:role, :atom, required: true)
+  attr(:my_role, :atom, required: true)
+
+  def role_select_input(assigns) do
+    ~H"""
+    <PrimaListbox.listbox id={@id} name={@name} value={@role} data-role-listbox>
+      <PrimaListbox.listbox_trigger id={"#{@id}-trigger"} class="w-[100px]">
+        <span class="sr-only">Role:</span>
+        <PrimaListbox.listbox_value data-testid="role">
+          {role_to_capitalized_string(@role)}
+        </PrimaListbox.listbox_value>
+        <Heroicons.chevron_down mini class="size-4" />
+      </PrimaListbox.listbox_trigger>
+
+      <PrimaListbox.listbox_options id={"#{@id}-options"} class="max-w-64">
+        <PrimaListbox.listbox_option
+          :for={{role, description} <- selectable_role_descriptions(@my_role)}
+          id={"#{@id}-option-#{role}"}
+          value={role}
+          display={role_to_capitalized_string(role)}
+        >
+          <div class="flex items-center justify-between gap-x-2">
+            <span>{role_to_capitalized_string(role)}</span>
+            <PrimaListbox.selected_option_check_icon />
+          </div>
+          <PrimaListbox.option_description class="whitespace-nowrap">
+            {description}
+          </PrimaListbox.option_description>
+        </PrimaListbox.listbox_option>
+      </PrimaListbox.listbox_options>
+    </PrimaListbox.listbox>
+    """
+  end
+
+  defp selectable_role_descriptions(my_role) do
+    Enum.filter(@role_descriptions, fn {role, _description} ->
+      TeamRolePermissions.can_assign?(my_role, role)
+    end)
+  end
+
+  defp lower_role_warning() do
+    "You're about to lower your own role. Some team management features will no longer be accessible to you, and you'll need to ask a team owner to restore your access. Do you want to continue?"
+  end
+end
